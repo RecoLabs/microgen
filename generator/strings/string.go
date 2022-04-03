@@ -12,6 +12,7 @@ func ToUpperFirst(s string) string {
 	return strings.ToUpper(string(s[0])) + s[1:]
 }
 
+// TODO - change function name to be more descriptive
 func ToSomeCaseWithSep(sep rune, runeConv func(rune) rune) func(string) string {
 	return func(s string) string {
 		in := []rune(s)
@@ -59,6 +60,7 @@ func IsInStringSlice(what string, where []string) bool {
 	return false
 }
 
+// TODO - change function name as it is un related to tags
 func FetchTags(strs []string, prefix string) (tags []string) {
 	for _, comment := range strs {
 		if strings.HasPrefix(comment, prefix) {
@@ -68,10 +70,12 @@ func FetchTags(strs []string, prefix string) (tags []string) {
 	return
 }
 
+// TODO - remove this function as it is just an alias for the "ContainTag" function
 func HasTag(strs []string, prefix string) bool {
 	return ContainTag(strs, prefix)
 }
 
+// TODO - change function name to be more descriptive
 func ToLower(str string) string {
 	if len(str) > 0 && unicode.IsLower(rune(str[0])) {
 		return str
@@ -90,6 +94,10 @@ func ToLower(str string) string {
 
 // Return last upper char in string or first char if no upper characters founded.
 func LastUpperOrFirst(str string) string {
+	if len(str) == 0 {
+		return ""
+	}
+
 	for i := len(str) - 1; i >= 0; i-- {
 		if unicode.IsUpper(rune(str[i])) {
 			return string(str[i])
