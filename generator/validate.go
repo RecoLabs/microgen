@@ -11,6 +11,10 @@ import (
 )
 
 func ValidateInterface(iface *types.Interface, pbGoFile *types.File) error {
+	if iface == nil {
+		return fmt.Errorf("nil interface")
+	}
+
 	var errs []error
 	if len(iface.Methods) == 0 {
 		errs = append(errs, fmt.Errorf("%s does not have any methods", iface.Name))
@@ -26,11 +30,19 @@ func ValidateInterface(iface *types.Interface, pbGoFile *types.File) error {
 // * Last result is error.
 // * All params have names.
 func validateFunction(fn *types.Function, pbGoFile *types.File) (errs []error) {
+	if fn == nil {
+		errs = append(errs, fmt.Errorf("nil function"))
+		return
+	}
+	microgenTags := mstrings.FetchTags(fn.Docs, TagMark+MicrogenMainTag)
+
 	// don't validate when `@microgen -` provided
-	if mstrings.ContainTag(mstrings.FetchTags(fn.Docs, TagMark+MicrogenMainTag), "-") {
+	if mstrings.ContainTag(microgenTags, "-") {
 		return
 	}
-	if mstrings.ContainTag(mstrings.FetchTags(fn.Docs, TagMark+MicrogenMainTag), "one-to-many") {
+	if mstrings.ContainTag(microgenTags, "one-to-many") ||
+		mstrings.ContainTag(microgenTags, "many-to-many") ||
+		mstrings.ContainTag(microgenTags, "many-to-one") {
 		for _, param := range append(fn.Args, fn.Results...) {
 			if param.Name == "" {
 				errs = append(errs, fmt.Errorf("%s: unnamed parameter of type %s", fn.Name, param.Type.String()))
@@ -38,22 +50,7 @@ func validateFunction(fn *types.Function, pbGoFile *types.File) (errs []error) {
 		}
 		return
 	}
-	if mstrings.ContainTag(mstrings.FetchTags(fn.Docs, TagMark+MicrogenMainTag), "many-to-many") {
-		for _, param := range append(fn.Args, fn.Results...) {
-			if param.Name == "" {
-				errs = append(errs, fmt.Errorf("%s: unnamed parameter of type %s", fn.Name, param.Type.String()))
-			}
-		}
-		return
-	}
-	if mstrings.ContainTag(mstrings.FetchTags(fn.Docs, TagMark+MicrogenMainTag), "many-to-one") {
-		for _, param := range append(fn.Args, fn.Results...) {
-			if param.Name == "" {
-				errs = append(errs, fmt.Errorf("%s: unnamed parameter of type %s", fn.Name, param.Type.String()))
-			}
-		}
-		return
-	}
+
 	if !template.IsContextFirst(fn.Args) {
 		errs = append(errs, fmt.Errorf("%s: first argument should be of type context.Context", fn.Name))
 	}
@@ -92,6 +89,10 @@ func responseStructName(signature *types.Function) string {
 }
 
 func findStruct(name string, grpcPb *types.File) *types.Struct {
+	if grpcPb == nil {
+		return nil
+	}
+
 	for _, s := range grpcPb.Structures {
 		if s.Name == name {
 			return &s
@@ -101,6 +102,10 @@ func findStruct(name string, grpcPb *types.File) *types.Struct {
 }
 
 func findField(name string, s *types.Struct) *types.StructField {
+	if s == nil {
+		return nil
+	}
+
 	for _, f := range s.Fields {
 		if f.Name == name {
 			return &f
@@ -149,16 +154,29 @@ func typeWithNoImport(field types.Type) string {
 	return typeName
 }
 
+// TODO - split this to two functions
 func validateFuncionInPbGoFile(fn *types.Function, pbGoFile *types.File) (errs []error) {
+	if fn == nil {
+		errs = append(errs, fmt.Errorf("function is nil"))
+		return
+	}
+	if pbGoFile == nil {
+		errs = append(errs, fmt.Errorf("pbGoFile is nil"))
+		return
+	}
+
 	requestStructName := requestStructName(fn)
 	s := findStruct(requestStructName, pbGoFile)
 	if s == nil {
 		errs = append(errs, fmt.Errorf("did not find struct %v in grpc pb file", requestStructName))
 		return
 	}
+
+	// TODO - we should also validate the struct hasn't any fields that are not in the function signature
 	for i, arg := range fn.Args {
 		if i == 0 {
 			// Note - we already now the first argument is 'ctx context.context'
+			// TODO - handle stream input and always perform a check
 			continue
 		}
 		protoFieldName := mstrings.ToUpperFirst(arg.Name)
@@ -203,6 +221,10 @@ func validateFuncionInPbGoFile(fn *types.Function, pbGoFile *types.File) (errs [
 }
 
 func isArgumentsAllowSmartPath(fn *types.Function) bool {
+	if fn == nil {
+		return false
+	}
+
 	for _, arg := range template.RemoveContextIfFirst(fn.Args) {
 		if !canInsertToPath(&arg) {
 			return false
@@ -215,6 +237,10 @@ var insertableToUrlTypes = []string{"string", "int", "int32", "int64", "uint", "
 
 // We can make url variable from string, int, int32, int64, uint, uint32, uint64
 func canInsertToPath(p *types.Variable) bool {
+	if p == nil {
+		return false
+	}
+
 	name := types.TypeName(p.Type)
 	return name != nil && mstrings.IsInStringSlice(*name, insertableToUrlTypes)
 }
