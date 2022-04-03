@@ -45,24 +45,27 @@ const (
 	HttpMethodPath = template.HttpMethodPath
 )
 
-func ListTemplatesForGen(ctx context.Context, iface *types.Interface, absOutPath, sourcePath, packageName string, genProto string, genMain bool) (units []*GenerationUnit, err error) {
+func getGenerationInfo(iface *types.Interface, packageName, sourcePath, absOutPath string) (*template.GenerationInfo, error) {
+	if iface == nil {
+		return nil, fmt.Errorf("interface is nil")
+	}
 
 	absSourcePath, err := filepath.Abs(sourcePath)
 	if err != nil {
 		return nil, err
 	}
-
 	allowedMethods := make(map[string]bool, len(iface.Methods))
 	oneToManyStreamMethods := make(map[string]bool, len(iface.Methods))
 	manyToManyStreamMethods := make(map[string]bool, len(iface.Methods))
 	manyToOneStreamMethods := make(map[string]bool, len(iface.Methods))
 	for _, fn := range iface.Methods {
-		allowedMethods[fn.Name] = !mstrings.ContainTag(mstrings.FetchTags(fn.Docs, TagMark+MicrogenMainTag), "-")
-		oneToManyStreamMethods[fn.Name] = mstrings.ContainTag(mstrings.FetchTags(fn.Docs, TagMark+MicrogenMainTag), "one-to-many")
-		manyToManyStreamMethods[fn.Name] = mstrings.ContainTag(mstrings.FetchTags(fn.Docs, TagMark+MicrogenMainTag), "many-to-many")
-		manyToOneStreamMethods[fn.Name] = mstrings.ContainTag(mstrings.FetchTags(fn.Docs, TagMark+MicrogenMainTag), "many-to-one")
+		microgenTags := mstrings.FetchTags(fn.Docs, TagMark+MicrogenMainTag)
+		allowedMethods[fn.Name] = !mstrings.ContainTag(microgenTags, "-")
+		oneToManyStreamMethods[fn.Name] = mstrings.ContainTag(microgenTags, "one-to-many")
+		manyToManyStreamMethods[fn.Name] = mstrings.ContainTag(microgenTags, "many-to-many")
+		manyToOneStreamMethods[fn.Name] = mstrings.ContainTag(microgenTags, "many-to-one")
 	}
-	info := &template.GenerationInfo{
+	return &template.GenerationInfo{
 		SourcePackageImport:     packageName,
 		SourceFilePath:          absSourcePath,
 		Iface:                   iface,
@@ -75,6 +78,20 @@ func ListTemplatesForGen(ctx context.Context, iface *types.Interface, absOutPath
 		ManyToManyStreamMethods: manyToManyStreamMethods,
 		ManyToOneStreamMethods:  manyToOneStreamMethods,
 		ProtobufClientAddr:      mstrings.FetchMetaInfo(TagMark+GRPCClientAddr, iface.Docs),
+	}, nil
+}
+
+func ListTemplatesForGen(
+	ctx context.Context,
+	iface *types.Interface,
+	absOutPath,
+	sourcePath,
+	packageName,
+	genProto string,
+	genMain bool) (units []*GenerationUnit, err error) {
+	info, err := getGenerationInfo(iface, packageName, sourcePath, absOutPath)
+	if err != nil {
+		return nil, err
 	}
 	lg.Logger.Logln(3, "\nGeneration Info:", info.String())
 	/*stubSvc, err := NewGenUnit(ctx, template.NewStubInterfaceTemplate(info), absOutPath)
@@ -121,6 +138,10 @@ func ListTemplatesForGen(ctx context.Context, iface *types.Interface, absOutPath
 }
 
 func tagToTemplate(tag string, info *template.GenerationInfo) (tmpls []template.Template) {
+	if info == nil {
+		return nil
+	}
+
 	switch tag {
 	case MiddlewareTag:
 		return append(tmpls, template.NewMiddlewareTemplate(info))
