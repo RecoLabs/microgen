@@ -1,131 +1,224 @@
 package generator
 
 import (
+	"context"
 	"fmt"
-	"io/ioutil"
-	"path/filepath"
-	"strings"
+	"reflect"
 	"testing"
 
-	"context"
-
-	strings2 "github.com/recolabs/microgen/generator/strings"
 	"github.com/recolabs/microgen/generator/template"
-	"github.com/stretchr/testify/assert"
-	"github.com/vetcher/go-astra"
-	"github.com/vetcher/go-astra/types"
+	"github.com/recolabs/microgen/generator/write_strategy"
+	"github.com/recolabs/microgen/mocks"
+	"github.com/stretchr/testify/mock"
 )
 
-func findInterface(file *types.File, ifaceName string) *types.Interface {
-	for i := range file.Interfaces {
-		if file.Interfaces[i].Name == ifaceName {
-			return &file.Interfaces[i]
-		}
-	}
-	return nil
-}
+func TestNewGenUnit(t *testing.T) {
+	failedToPrepareTemplate := new(mocks.Template)
+	failedToPrepareTemplate.
+		On("DefaultPath").
+		Return("")
+	failedToPrepareTemplate.
+		On("Prepare", mock.Anything).
+		Return(fmt.Errorf("failed to prepare template"))
 
-func loadInterface(sourceFile, ifaceName string) (*types.Interface, error) {
-	info, err := astra.ParseFile(sourceFile)
-	if err != nil {
-		return nil, err
-	}
-	i := findInterface(info, ifaceName)
-	if i == nil {
-		return nil, fmt.Errorf("could not find %s interface", ifaceName)
-	}
-	return i, nil
-}
+	failedToChooseStrategyTemplate := new(mocks.Template)
+	failedToChooseStrategyTemplate.
+		On("DefaultPath").
+		Return("")
+	failedToChooseStrategyTemplate.
+		On("Prepare", mock.Anything).
+		Return(nil)
+	failedToChooseStrategyTemplate.
+		On("ChooseStrategy", mock.Anything).
+		Return(nil, fmt.Errorf("failed to choose strategy"))
 
-func TestTemplates(t *testing.T) {
-	outPath := "./test_out/"
-	sourcePath := "./test_assets/service.go.txt"
-	absSourcePath, err := filepath.Abs(sourcePath)
-	importPackagePath, err := resolvePackagePath(outPath)
-	iface, err := loadInterface(sourcePath, "StringService")
-	if err != nil {
-		t.Fatal(err)
-	}
+	validStrategy := new(mocks.Strategy)
+	validTemplate := new(mocks.Template)
+	validTemplate.
+		On("Prepare", mock.Anything).
+		Return(nil)
+	validTemplate.
+		On("ChooseStrategy", mock.Anything).
+		Return(validStrategy, nil)
 
-	genInfo := &template.GenerationInfo{
-		SourcePackageImport:   importPackagePath,
-		Iface:                 iface,
-		OutputFilePath:        outPath,
-		SourceFilePath:        absSourcePath,
-		ProtobufPackageImport: strings2.FetchMetaInfo(TagMark+ProtobufTag, iface.Docs),
+	type args struct {
+		ctx     context.Context
+		tmpl    template.Template
+		outPath string
 	}
-	t.Log("protobuf pkg", genInfo.ProtobufPackageImport)
-
-	allTemplateTests := []struct {
-		TestName    string
-		Template    template.Template
-		OutFilePath string
+	tests := []struct {
+		name    string
+		args    args
+		want    *GenerationUnit
+		wantErr bool
 	}{
 		{
-			TestName:    "Endpoints",
-			Template:    template.NewEndpointsTemplate(genInfo),
-			OutFilePath: "transport_endpoints.go.txt",
+			name: "failed to prepare template",
+			args: args{
+				ctx:     context.Background(),
+				tmpl:    failedToPrepareTemplate,
+				outPath: "",
+			},
+			want:    nil,
+			wantErr: true,
 		},
 		{
-			TestName:    "Exchange",
-			Template:    template.NewExchangeTemplate(genInfo),
-			OutFilePath: "transport_exchanges.go.txt",
+			name: "failed to choose strategy",
+			args: args{
+				ctx:     context.Background(),
+				tmpl:    failedToChooseStrategyTemplate,
+				outPath: "",
+			},
+			want:    nil,
+			wantErr: true,
 		},
 		{
-			TestName:    "Middleware",
-			Template:    template.NewMiddlewareTemplate(genInfo),
-			OutFilePath: "middleware.go.txt",
-		},
-		{
-			TestName:    "Logging",
-			Template:    template.NewLoggingTemplate(genInfo),
-			OutFilePath: "logging.go.txt",
-		},
-		{
-			TestName:    "GRPC Server",
-			Template:    template.NewGRPCServerTemplate(genInfo),
-			OutFilePath: "grpc_server.go.txt",
-		},
-		{
-			TestName:    "GRPC Client",
-			Template:    template.NewGRPCClientTemplate(genInfo),
-			OutFilePath: "grpc_client.go.txt",
-		},
-		{
-			TestName:    "GRPC Converter",
-			Template:    template.NewGRPCEndpointConverterTemplate(genInfo),
-			OutFilePath: "grpc_converters.go.txt",
-		},
-		{
-			TestName:    "GRPC Type Converter",
-			Template:    template.NewStubGRPCTypeConverterTemplate(genInfo),
-			OutFilePath: "grpc_type.go.txt",
+			name: "success case",
+			args: args{
+				ctx:     context.Background(),
+				tmpl:    validTemplate,
+				outPath: "path",
+			},
+			want: &GenerationUnit{
+				template:      validTemplate,
+				writeStrategy: validStrategy,
+				absOutPath:    "path",
+			},
+			wantErr: false,
 		},
 	}
-	for _, test := range allTemplateTests {
-		t.Run(test.TestName, func(t *testing.T) {
-			expected, err := ioutil.ReadFile("test_assets/" + test.OutFilePath)
-			if err != nil {
-				t.Fatalf("read expected file error: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := NewGenUnit(tt.args.ctx, tt.args.tmpl, tt.args.outPath)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewGenUnit() error = %v, wantErr %v", err, tt.wantErr)
+				return
 			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("NewGenUnit() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
 
-			absOutPath := "./test_out/"
-			gen, err := NewGenUnit(context.Background(), test.Template, absOutPath)
-			if err != nil {
-				t.Fatalf("NewGenUnit: %v", err)
+func TestGenerationUnit_Generate(t *testing.T) {
+	renderer := new(mocks.Renderer)
+	successTemplate := new(mocks.Template)
+	successTemplate.
+		On("Render", mock.Anything).
+		Return(renderer)
+
+	failedWriteStrategy := new(mocks.Strategy)
+	failedWriteStrategy.
+		On("Write", mock.Anything).
+		Return(fmt.Errorf("failed to write"))
+
+	successWriteStrategy := new(mocks.Strategy)
+	successWriteStrategy.
+		On("Write", mock.Anything).
+		Return(nil)
+
+	type fields struct {
+		template      template.Template
+		writeStrategy write_strategy.Strategy
+		absOutPath    string
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		wantErr bool
+	}{
+		{
+			name: "no template",
+			fields: fields{
+				template:      nil,
+				writeStrategy: successWriteStrategy,
+				absOutPath:    "",
+			},
+			wantErr: true,
+		},
+		{
+			name: "no strategy",
+			fields: fields{
+				template:      successTemplate,
+				writeStrategy: nil,
+				absOutPath:    "",
+			},
+			wantErr: true,
+		},
+		{
+			name: "write fail",
+			fields: fields{
+				template:      successTemplate,
+				writeStrategy: failedWriteStrategy,
+				absOutPath:    "",
+			},
+			wantErr: true,
+		},
+		{
+			name: "success case",
+			fields: fields{
+				template:      successTemplate,
+				writeStrategy: successWriteStrategy,
+				absOutPath:    "",
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := &GenerationUnit{
+				template:      tt.fields.template,
+				writeStrategy: tt.fields.writeStrategy,
+				absOutPath:    tt.fields.absOutPath,
 			}
-			err = gen.Generate(context.Background())
-			if err != nil {
-				t.Fatalf("unable to generate: %v", err)
+			if err := g.Generate(context.Background()); (err != nil) != tt.wantErr {
+				t.Errorf("GenerationUnit.Generate() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			actual, err := ioutil.ReadFile("./test_out/" + test.Template.DefaultPath())
-			if err != nil {
-				t.Fatalf("read actual file error: %v", err)
+		})
+	}
+}
+
+func TestGenerationUnit_Path(t *testing.T) {
+	type fields struct {
+		template      template.Template
+		writeStrategy write_strategy.Strategy
+		absOutPath    string
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		want   string
+	}{
+		{
+			name: "empty string",
+			fields: fields{
+				template:      nil,
+				writeStrategy: nil,
+				absOutPath:    "",
+			},
+			want: "",
+		},
+		{
+			name: "success case",
+			fields: fields{
+				template:      nil,
+				writeStrategy: nil,
+				absOutPath:    "hello",
+			},
+			want: "hello",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := GenerationUnit{
+				template:      tt.fields.template,
+				writeStrategy: tt.fields.writeStrategy,
+				absOutPath:    tt.fields.absOutPath,
 			}
-			assert.Equal(t,
-				strings.Split(string(expected[:]), "\n"),
-				strings.Split(string(actual[:]), "\n"),
-			)
+			if got := g.Path(); got != tt.want {
+				t.Errorf("GenerationUnit.Path() = %v, want %v", got, tt.want)
+			}
 		})
 	}
 }
