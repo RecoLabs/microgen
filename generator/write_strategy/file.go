@@ -36,7 +36,7 @@ func (s createFileStrategy) Write(renderer Renderer) error {
 	if err != nil {
 		return fmt.Errorf("unable to resolve path: %v", err)
 	}
-	dir := path.Dir(outpath)
+	dir := filepath.Dir(outpath)
 
 	_, err = os.Stat(dir)
 
